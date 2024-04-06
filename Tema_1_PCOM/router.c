@@ -10,6 +10,7 @@
 #define ETHERTYPE_IP 0x0800
 #define ETHERTYPE_ARP 0x0806
 #define ICMP_PROTOCOL 1
+#define ARP_TABLE_FILE "arp_table.txt"
 
 // Compare function for qsort -- sort by mask (descending)
 int cmpfunc(const void *a, const void *b)
@@ -57,7 +58,7 @@ int main(int argc, char *argv[])
 
 	// Initialize the ARP table
 	struct arp_table_entry *arp_table = malloc(sizeof(struct arp_table_entry) * ARP_TABLE_MAX_ENTRIES);
-	int arp_table_size = parse_arp_table(argv[2], arp_table);
+	int arp_table_size = parse_arp_table(ARP_TABLE_FILE, arp_table);
 
 	while (1) {
 
@@ -140,7 +141,7 @@ int main(int argc, char *argv[])
 				uint16_t new_checksum = checksum((uint16_t *)ip_hdr, sizeof(struct iphdr));
 
 				if (old_checksum != new_checksum) // TO DO: Check if this is correct, it may be new_checksum != 0
-					continue;
+					continue; // TO: DO: Verify if it is correct -- Maybe use break instead of continue
 
 				// Check the TTL
 				if (ip_hdr->ttl <= 1) {
