@@ -18,10 +18,16 @@ int cmpfunc(const void *a, const void *b)
 	struct route_table_entry *entry1 = (struct route_table_entry *)a;
 	struct route_table_entry *entry2 = (struct route_table_entry *)b;
 
-	if (entry1->mask < entry2->mask)
+	if (entry1->prefix < entry2->prefix)
 		return 1;
-	else
-		return 0;
+	else if (entry1->prefix > entry2->prefix)
+		return -1;
+	else if (entry1->mask < entry2->mask)
+		return 1;
+	else if (entry1->mask > entry2->mask)
+		return -1;
+
+	return 0;
 }
 
 struct route_table_entry *get_best_route(u_int32_t ip, struct route_table_entry *r_table, int r_table_size)
@@ -75,8 +81,8 @@ int main(int argc, char *argv[])
 		sending a packet on the link, */
 
 		// Check if the packet has the right size, if not drop it
-		if (len < sizeof(struct ether_header))
-			continue;
+		//if (len < sizeof(struct ether_header))
+			//continue;
 
 		// Get the MAC address of the interface
 		uint8_t *interface_mac = malloc(6 * sizeof(uint8_t));
@@ -129,7 +135,7 @@ int main(int argc, char *argv[])
 						ip_hdr->daddr = aux;
 
 						// Send the packet
-						send_to_link(interface, (char *)eth_hdr, len); // TO DO: Verify if it is correct
+						send_to_link(interface, (char *)eth_hdr, sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct icmphdr));
 					}
 				}
 			} else {
@@ -140,8 +146,8 @@ int main(int argc, char *argv[])
 				ip_hdr->check = 0;
 				uint16_t new_checksum = checksum((uint16_t *)ip_hdr, sizeof(struct iphdr));
 
-				if (old_checksum != new_checksum) // TO DO: Check if this is correct, it may be new_checksum != 0
-					continue; // TO: DO: Verify if it is correct -- Maybe use break instead of continue
+				if (old_checksum != new_checksum)
+					continue;
 
 				// Check the TTL
 				if (ip_hdr->ttl <= 1) {
@@ -200,7 +206,7 @@ int main(int argc, char *argv[])
 				struct route_table_entry *best_route = NULL;
 				best_route = get_best_route(ip_hdr->daddr, r_table, r_table_size);
 
-				// Check if the route exists
+				// Check if the route dowsn't exists
 				if (best_route == NULL) {
 					// Send an ICMP packet with "Destination unreachable"
 					struct ether_header *icmp_eth_hdr = malloc(sizeof(struct ether_header));
@@ -236,7 +242,7 @@ int main(int argc, char *argv[])
 					memcpy(icmp_packet + sizeof(struct ether_header) + sizeof(struct iphdr), icmp_icmp_hdr, sizeof(struct icmphdr));
 
 					// Send the packet
-					send_to_link(interface, icmp_packet, sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct icmphdr)); // TO DO: Verify if it is correct
+					send_to_link(interface, icmp_packet, sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct icmphdr));
 
 					continue;
 				}
@@ -249,13 +255,13 @@ int main(int argc, char *argv[])
 				memcpy(eth_hdr->ether_dhost, get_mac_from_arp_table(arp_table, arp_table_size, best_route->next_hop), 6);
 			
 				// Send the packet
-				send_to_link(best_route->interface, (char *)eth_hdr, sizeof(struct ether_header) + ntohs(ip_hdr->tot_len)); // TO DO: Verify if it is correct
+				send_to_link(best_route->interface, (char *)eth_hdr, len);
 			}
 
 			break;
 		
 		case ETHERTYPE_ARP:
-
+			
 			break;
 
 		default:
