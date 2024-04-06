@@ -93,7 +93,7 @@ int main(int argc, char *argv[])
 		uint8_t *interface_mac = malloc(6 * sizeof(uint8_t));
 		get_interface_mac(interface, interface_mac);
 
-		// Check if the packet is for the router
+		// // Check if the packet is for the router
 		// int is_for_router = 1;
 		// for (int i = 0; i < 6; i++)
 		// 	if (eth_hdr->ether_dhost[i] != interface_mac[i])
@@ -162,11 +162,6 @@ int main(int argc, char *argv[])
 
 					// Check if the ICMP packet is an echo request
 					if (icmp_hdr->type == 8) {
-						// Create the echo reply
-						icmp_hdr->type = 0;
-						icmp_hdr->checksum = 0;
-						icmp_hdr->checksum = checksum((uint16_t *)icmp_hdr, sizeof(struct icmphdr));
-
 						// Swap the MAC addresses
 						memcpy(eth_hdr->ether_shost, eth_hdr->ether_dhost, 6);
 						memcpy(eth_hdr->ether_dhost, interface_mac, 6);
@@ -176,12 +171,19 @@ int main(int argc, char *argv[])
 						ip_hdr->saddr = ip_hdr->daddr;
 						ip_hdr->daddr = aux;
 
+						ip_hdr->check = 0;
+						ip_hdr->check = checksum((uint16_t *)ip_hdr, sizeof(struct iphdr));
+
+						// Create the echo reply
+						icmp_hdr->type = 0;
+						icmp_hdr->checksum = 0;
+						icmp_hdr->checksum = checksum((uint16_t *)icmp_hdr, sizeof(struct icmphdr));
+
 						// Send the packet
 						send_to_link(interface, buf, sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct icmphdr));
 					}
 				}
 			} else {
-				
 				// The router is not the destination, so we need to forward the packet
 
 				// Verify the checksum
