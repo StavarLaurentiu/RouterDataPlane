@@ -59,7 +59,7 @@ int main(int argc, char *argv[])
 	struct route_table_entry *r_table = malloc(sizeof(struct route_table_entry) * R_TABLE_MAX_ENTRIES);
 	int r_table_size = read_rtable(argv[1], r_table);
 
-	// Sort the routing table by the mask (descending) -- TO DO: Verify if cmpfunc is correct
+	// Sort the routing table by the mask (descending)
 	qsort(r_table, r_table_size, sizeof(struct route_table_entry), cmpfunc);
 
 	// Initialize the ARP table
@@ -67,6 +67,7 @@ int main(int argc, char *argv[])
 	int arp_table_size = parse_arp_table(ARP_TABLE_FILE, arp_table);
 
 	while (1) {
+		fprintf(stderr, "Waiting for packets...\n");
 
 		int interface;
 		size_t len;
@@ -80,9 +81,13 @@ int main(int argc, char *argv[])
 		host order. For example, ntohs(eth_hdr->ether_type). The oposite is needed whens
 		sending a packet on the link, */
 
+		fprintf(stderr, "Received packet on interface %d\n", interface);
+
 		// Check if the packet has the right size, if not drop it
-		//if (len < sizeof(struct ether_header))
-			//continue;
+		if (len < sizeof(struct ether_header)) {
+			fprintf(stderr, "Packet too short\n");
+			continue;
+		}
 
 		// Get the MAC address of the interface
 		uint8_t *interface_mac = malloc(6 * sizeof(uint8_t));
@@ -97,12 +102,14 @@ int main(int argc, char *argv[])
 		// Check if the packet is on broadcast
 		int is_broadcast = 1;
 		for (int i = 0; i < 6; i++)
-			if (eth_hdr->ether_dhost[i] != 0xff)
+			if (eth_hdr->ether_dhost[i] != 0xFF)
 				is_broadcast = 0;
 
 		// If the packet is not for the router or on broadcast, drop it
-		if (!is_for_router && !is_broadcast)
+		if (!is_for_router && !is_broadcast) {
+			fprintf(stderr, "Packet not for router or on broadcast\n");
 			continue;
+		}
 
 		// If the packet is for the router, process it => Check the type of the packet(ARP/IP)
 		switch (ntohs(eth_hdr->ether_type)) 
@@ -111,43 +118,48 @@ int main(int argc, char *argv[])
 			// Get the IP header
 			struct iphdr *ip_hdr = (struct iphdr *)(eth_hdr + sizeof(struct ether_header));
 
+			fprintf(stderr, "Received IP packet\n");
+
 			// Check if the router is the actual destination
 			if (ip_hdr->daddr == inet_addr(get_interface_ip(interface))) {
 				// Check if the packet is an ICMP packet
-				if (ip_hdr->protocol == ICMP_PROTOCOL) {
-					// Get the ICMP header
-					struct icmphdr *icmp_hdr = (struct icmphdr *)(ip_hdr + sizeof(struct iphdr));
+				// if (ip_hdr->protocol == ICMP_PROTOCOL) {
+				// 	// Get the ICMP header
+				// 	struct icmphdr *icmp_hdr = (struct icmphdr *)(ip_hdr + sizeof(struct iphdr));
 
-					// Check if the ICMP packet is an echo request
-					if (icmp_hdr->type == 8) {
-						// Create the echo reply
-						icmp_hdr->type = 0;
-						icmp_hdr->checksum = 0;
-						icmp_hdr->checksum = checksum((uint16_t *)icmp_hdr, ntohs(ip_hdr->tot_len) - sizeof(struct iphdr));
+				// 	// Check if the ICMP packet is an echo request
+				// 	if (icmp_hdr->type == 8) {
+				// 		// Create the echo reply
+				// 		icmp_hdr->type = 0;
+				// 		icmp_hdr->checksum = 0;
+				// 		icmp_hdr->checksum = checksum((uint16_t *)icmp_hdr, ntohs(ip_hdr->tot_len) - sizeof(struct iphdr));
 
-						// Swap the MAC addresses
-						memcpy(eth_hdr->ether_shost, eth_hdr->ether_dhost, 6);
-						memcpy(eth_hdr->ether_dhost, interface_mac, 6);
+				// 		// Swap the MAC addresses
+				// 		memcpy(eth_hdr->ether_shost, eth_hdr->ether_dhost, 6);
+				// 		memcpy(eth_hdr->ether_dhost, interface_mac, 6);
 
-						// Swap the IP addresses
-						uint32_t aux = ip_hdr->saddr;
-						ip_hdr->saddr = ip_hdr->daddr;
-						ip_hdr->daddr = aux;
+				// 		// Swap the IP addresses
+				// 		uint32_t aux = ip_hdr->saddr;
+				// 		ip_hdr->saddr = ip_hdr->daddr;
+				// 		ip_hdr->daddr = aux;
 
-						// Send the packet
-						send_to_link(interface, (char *)eth_hdr, sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct icmphdr));
-					}
-				}
+				// 		// Send the packet
+				// 		send_to_link(interface, (char *)eth_hdr, sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct icmphdr));
+				// 	}
+				// }
 			} else {
 				// The router is not the destination, so we need to forward the packet
 
 				// Verify the checksum
 				uint16_t old_checksum = ip_hdr->check;
 				ip_hdr->check = 0;
-				uint16_t new_checksum = checksum((uint16_t *)ip_hdr, sizeof(struct iphdr));
+				uint16_t new_checksum = htons(checksum((uint16_t *)ip_hdr, sizeof(struct iphdr)));
+				ip_hdr->check = new_checksum;
 
-				if (old_checksum != new_checksum)
+				if (old_checksum != new_checksum) {
+					fprintf(stderr, "Checksums don't match\n");
 					continue;
+				}
 
 				// Check the TTL
 				if (ip_hdr->ttl <= 1) {
@@ -194,19 +206,19 @@ int main(int argc, char *argv[])
 					size_t icmp_packet_len = sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct icmphdr) + 64;
 					
 					// Send the packet
-					send_to_link(interface, icmp_packet, icmp_packet_len); // TO DO: Verify if it is correct
+					send_to_link(interface, icmp_packet, icmp_packet_len); 
 					
 					continue;
-				} else {
-					// Decrement the TTL
-					ip_hdr->ttl--;
-				}
-
+				} 
+			
+				// Decrement the TTL
+				ip_hdr->ttl--;
+				
 				// Find the best route
 				struct route_table_entry *best_route = NULL;
 				best_route = get_best_route(ip_hdr->daddr, r_table, r_table_size);
 
-				// Check if the route dowsn't exists
+				// Check if the route doesn't exists
 				if (best_route == NULL) {
 					// Send an ICMP packet with "Destination unreachable"
 					struct ether_header *icmp_eth_hdr = malloc(sizeof(struct ether_header));
@@ -248,20 +260,19 @@ int main(int argc, char *argv[])
 				}
 
 				// Update the IP checksum with the formula from LAB 4
-				ip_hdr->check = ~(~old_checksum +  ~((uint16_t)(ip_hdr->ttl + 1)) + (uint16_t)ip_hdr->ttl) - 1;
+				ip_hdr->check = ~(~old_checksum + ~((uint16_t)ip_hdr->ttl + 1) + (uint16_t)ip_hdr->ttl) - 1;
 
 				// Update the MAC addresses
 				memcpy(eth_hdr->ether_shost, interface_mac, 6);
 				memcpy(eth_hdr->ether_dhost, get_mac_from_arp_table(arp_table, arp_table_size, best_route->next_hop), 6);
-			
-				// Send the packet
-				send_to_link(best_route->interface, (char *)eth_hdr, len);
-			}
 
+				// Send the packet
+				send_to_link(best_route->interface, buf, len);
+			}
 			break;
 		
 		case ETHERTYPE_ARP:
-			
+
 			break;
 
 		default:
