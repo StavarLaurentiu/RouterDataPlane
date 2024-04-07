@@ -10,6 +10,10 @@
 #define ETHERTYPE_IP 0x0800
 #define ETHERTYPE_ARP 0x0806
 #define ICMP_PROTOCOL 1
+#define TIME_EXCEEDED_TYPE 11
+#define TIME_EXCEEDED_CODE 0
+#define DEST_UNREACHABLE_TYPE 3
+#define DEST_UNREACHABLE_CODE 0
 #define ARP_TABLE_FILE "arp_table.txt"
 
 // Compare function for qsort -- sort by prefix and mask (descending) 
@@ -48,6 +52,67 @@ u_int8_t *get_mac_from_arp_table(struct arp_table_entry *arp_table, int arp_tabl
 			return arp_table[i].mac;
 
 	return NULL;
+}
+
+// Sends an ICMP packet with the given type and code -- In our case: "Time exceeded" and "Destination unreachable"
+void send_icmp_packet(int interface, struct ether_header *eth_hdr, struct iphdr *ip_hdr, int type, int code) {
+	// Get the MAC address of the interface
+	uint8_t *interface_mac = malloc(6 * sizeof(uint8_t));
+	get_interface_mac(interface, interface_mac);
+
+	// Get the IP address of the interface
+	in_addr_t interface_ip = inet_addr(get_interface_ip(interface));
+	
+	struct ether_header *icmp_eth_hdr = malloc(sizeof(struct ether_header));
+	struct iphdr *icmp_ip_hdr = malloc(sizeof(struct iphdr));
+	struct icmphdr *icmp_icmp_hdr = malloc(sizeof(struct icmphdr));
+
+	// Create the ICMP packet
+	icmp_eth_hdr->ether_type = htons(ETHERTYPE_IP);
+	memcpy(icmp_eth_hdr->ether_shost, interface_mac, 6);
+	memcpy(icmp_eth_hdr->ether_dhost, eth_hdr->ether_shost, 6);
+
+	// Create the IP header
+	icmp_ip_hdr->version = 4; 
+	icmp_ip_hdr->ihl = 5; 
+	icmp_ip_hdr->tos = 0; 
+	icmp_ip_hdr->tot_len = htons(sizeof(struct iphdr) + sizeof(struct icmphdr));
+	icmp_ip_hdr->id = 0;
+	icmp_ip_hdr->frag_off = 0;
+	icmp_ip_hdr->ttl = 64;
+	icmp_ip_hdr->protocol = ICMP_PROTOCOL;
+	icmp_ip_hdr->saddr = interface_ip;
+	icmp_ip_hdr->daddr = ip_hdr->saddr;
+	icmp_ip_hdr->check = 0;
+	icmp_ip_hdr->check = checksum((uint16_t *)icmp_ip_hdr, sizeof(struct iphdr));
+
+	// Create the ICMP header
+	icmp_icmp_hdr->type = type;
+	icmp_icmp_hdr->code = code;
+	icmp_icmp_hdr->checksum = 0;
+	icmp_icmp_hdr->checksum = checksum((uint16_t *)icmp_icmp_hdr, sizeof(struct icmphdr));
+
+	// Create the packet
+	char *icmp_packet = malloc(sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct icmphdr));
+	memcpy(icmp_packet, icmp_eth_hdr, sizeof(struct ether_header));
+	memcpy(icmp_packet + sizeof(struct ether_header), icmp_ip_hdr, sizeof(struct iphdr));
+	memcpy(icmp_packet + sizeof(struct ether_header) + sizeof(struct iphdr), icmp_icmp_hdr, sizeof(struct icmphdr));
+
+	// Add the first 64 bits of the original packet
+	memcpy(icmp_packet + sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct icmphdr), ip_hdr + sizeof(struct iphdr), 64);
+
+	// Compute length of the packet
+	size_t icmp_packet_len = sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct icmphdr) + 64;
+				
+	// Send the packet
+	send_to_link(interface, icmp_packet, icmp_packet_len); 
+
+	// Free the allocated memory for interface_mac and the ICMP packet
+	free(interface_mac);
+	free(icmp_eth_hdr);
+	free(icmp_ip_hdr);
+	free(icmp_icmp_hdr);
+	free(icmp_packet);
 }
 
 int main(int argc, char *argv[])
@@ -171,57 +236,11 @@ int main(int argc, char *argv[])
 					fprintf(stderr, "TTL is 0 or 1, so we send ICMP packet with type \"Time exceeded\"\n");
 
 					// Send an ICMP packet with "Time exceeded"
-					struct ether_header *icmp_eth_hdr = malloc(sizeof(struct ether_header));
-					struct iphdr *icmp_ip_hdr = malloc(sizeof(struct iphdr));
-					struct icmphdr *icmp_icmp_hdr = malloc(sizeof(struct icmphdr));
-
-					// Create the ICMP packet
-					icmp_eth_hdr->ether_type = htons(ETHERTYPE_IP);
-					memcpy(icmp_eth_hdr->ether_shost, interface_mac, 6);
-					memcpy(icmp_eth_hdr->ether_dhost, eth_hdr->ether_shost, 6);
-
-					// Create the IP header
-					icmp_ip_hdr->version = 4; 
-					icmp_ip_hdr->ihl = 5; 
-					icmp_ip_hdr->tos = 0; 
-					icmp_ip_hdr->tot_len = htons(sizeof(struct iphdr) + sizeof(struct icmphdr));
-					icmp_ip_hdr->id = 0;
-					icmp_ip_hdr->frag_off = 0;
-					icmp_ip_hdr->ttl = 64;
-					icmp_ip_hdr->protocol = ICMP_PROTOCOL;
-					icmp_ip_hdr->saddr = interface_ip;
-					icmp_ip_hdr->daddr = ip_hdr->saddr;
-					icmp_ip_hdr->check = 0;
-					icmp_ip_hdr->check = checksum((uint16_t *)icmp_ip_hdr, sizeof(struct iphdr));
-
-					// Create the ICMP header
-					icmp_icmp_hdr->type = 11; // Time exceeded
-					icmp_icmp_hdr->code = 0;
-					icmp_icmp_hdr->checksum = 0;
-					icmp_icmp_hdr->checksum = checksum((uint16_t *)icmp_icmp_hdr, sizeof(struct icmphdr));
-
-					// Create the packet
-					char *icmp_packet = malloc(sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct icmphdr));
-					memcpy(icmp_packet, icmp_eth_hdr, sizeof(struct ether_header));
-					memcpy(icmp_packet + sizeof(struct ether_header), icmp_ip_hdr, sizeof(struct iphdr));
-					memcpy(icmp_packet + sizeof(struct ether_header) + sizeof(struct iphdr), icmp_icmp_hdr, sizeof(struct icmphdr));
-
-					// Add the first 64 bits of the original packet
-					memcpy(icmp_packet + sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct icmphdr), ip_hdr + sizeof(struct iphdr), 64);
-
-					// Compute length of the packet
-					size_t icmp_packet_len = sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct icmphdr) + 64;
+					send_icmp_packet(interface, eth_hdr, ip_hdr, TIME_EXCEEDED_TYPE, TIME_EXCEEDED_CODE);
 					
-					// Send the packet
-					send_to_link(interface, icmp_packet, icmp_packet_len); 
-
-					// Free the allocated memory for interface_mac and the ICMP packet
+					// Free the allocated memory for interface_mac
 					free(interface_mac);
-					free(icmp_eth_hdr);
-					free(icmp_ip_hdr);
-					free(icmp_icmp_hdr);
-					free(icmp_packet);
-					
+
 					continue;
 				} 
 
@@ -241,47 +260,10 @@ int main(int argc, char *argv[])
 					fprintf(stderr, "The route doesn't exist, so we ned an ICMP type \"Destination ureachable\"\n");
 
 					// Send an ICMP packet with "Destination unreachable"
-					struct ether_header *icmp_eth_hdr = malloc(sizeof(struct ether_header));
-					struct iphdr *icmp_ip_hdr = malloc(sizeof(struct iphdr));
-					struct icmphdr *icmp_icmp_hdr = malloc(sizeof(struct icmphdr));
-
-					// Create the ICMP packet
-					icmp_eth_hdr->ether_type = htons(ETHERTYPE_IP);
-					memcpy(icmp_eth_hdr->ether_shost, interface_mac, 6);
-					memcpy(icmp_eth_hdr->ether_dhost, eth_hdr->ether_shost, 6);
-
-					// Create the IP header
-					icmp_ip_hdr->version = 4;
-					icmp_ip_hdr->ihl = 5;
-					icmp_ip_hdr->tos = 0;
-					icmp_ip_hdr->tot_len = htons(sizeof(struct iphdr) + sizeof(struct icmphdr));
-					icmp_ip_hdr->id = 0;
-					icmp_ip_hdr->frag_off = 0;
-					icmp_ip_hdr->ttl = 64;
-					icmp_ip_hdr->protocol = ICMP_PROTOCOL;
-					icmp_ip_hdr->saddr = interface_ip;
-
-					// Create the ICMP header
-					icmp_icmp_hdr->type = 3; // Destination unreachable
-					icmp_icmp_hdr->code = 0;
-					icmp_icmp_hdr->checksum = 0;
-					icmp_icmp_hdr->checksum = checksum((uint16_t *)icmp_icmp_hdr, sizeof(struct icmphdr));
-
-					// Create the packet
-					char *icmp_packet = malloc(sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct icmphdr));
-					memcpy(icmp_packet, icmp_eth_hdr, sizeof(struct ether_header));
-					memcpy(icmp_packet + sizeof(struct ether_header), icmp_ip_hdr, sizeof(struct iphdr));
-					memcpy(icmp_packet + sizeof(struct ether_header) + sizeof(struct iphdr), icmp_icmp_hdr, sizeof(struct icmphdr));
-
-					// Send the packet
-					send_to_link(interface, icmp_packet, sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct icmphdr));
-
-					// Free the allocated memory for interface_mac and the ICMP packet
+					send_icmp_packet(interface, eth_hdr, ip_hdr, DEST_UNREACHABLE_TYPE, DEST_UNREACHABLE_CODE);
+					
+					// Free the allocated memory for interface_mac
 					free(interface_mac);
-					free(icmp_eth_hdr);
-					free(icmp_ip_hdr);
-					free(icmp_icmp_hdr);
-					free(icmp_packet);
 
 					continue;
 				}
