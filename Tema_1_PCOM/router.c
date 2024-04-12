@@ -16,22 +16,21 @@
 #define DEST_UNREACHABLE_CODE 0
 #define ARP_TABLE_FILE "arp_table.txt"
 
-// Compare function for qsort -- sort by prefix and mask (descending)
+// Compare function for qsort -- sort by prefix and mask (ascending)
 int cmpfunc(const void *a, const void *b)
 {
 	struct route_table_entry *entry1 = (struct route_table_entry *)a;
 	struct route_table_entry *entry2 = (struct route_table_entry *)b;
 
-	if (entry1->prefix < entry2->prefix)
-		return 1;
-	else if (entry1->prefix > entry2->prefix)
-		return -1;
-	else if (entry1->mask < entry2->mask)
-		return 1;
-	else if (entry1->mask > entry2->mask)
-		return -1;
+	u_int32_t path1 = entry1->prefix & entry1->mask;
+	u_int32_t path2 = entry2->prefix & entry2->mask;
 
-	return 0;
+	// If the paths are different, return the difference -- to sort in ascending order
+	if (path1 != path2)
+		return path1 - path2;
+	
+	// If the paths are the same, return the difference -- to sort in ascending order by mask
+	return entry1->mask - entry2->mask;
 }
 
 // Search for the best route in the routing table using bynary search
@@ -48,27 +47,27 @@ struct route_table_entry *get_best_route(u_int32_t ip, struct route_table_entry 
 	// BINARY SEARCH -- O(log(n)) < O(n)
 
 	int left = 0, right = r_table_size - 1;
+	struct route_table_entry *best_route = NULL;
 
 	while (left <= right)
 	{
 		int mid = left + (right - left) / 2;
 
-		if ((ip & r_table[mid].mask) == r_table[mid].prefix)
-		{
-			// Search for the longest prefix match
-			while (mid >= 0 && (ip & r_table[mid].mask) == r_table[mid].prefix)
-				mid--;
+		if ((ip & r_table[mid].mask) == (r_table[mid].prefix & r_table[mid].mask))
+		{	
+			// Consider the best route is the current one
+			best_route = &r_table[mid];
 
-			mid++;
-			return &r_table[mid];
+			// Check if there is a better route
+			left = mid + 1;
 		}
-		else if ((ip & r_table[mid].mask) > r_table[mid].prefix)
+		else if ((ip & r_table[mid].mask) < (r_table[mid].prefix & r_table[mid].mask))
 			right = mid - 1;
 		else
 			left = mid + 1;
 	}
 
-	return NULL;
+	return best_route;
 }
 
 // Get the MAC address from the ARP table
@@ -154,7 +153,7 @@ int main(int argc, char *argv[])
 	struct route_table_entry *r_table = malloc(sizeof(struct route_table_entry) * R_TABLE_MAX_ENTRIES);
 	int r_table_size = read_rtable(argv[1], r_table);
 
-	// Sort the routing table by the mask and prefix (descending)
+	// Sort the routing table by the mask and prefix (ascending)
 	qsort(r_table, r_table_size, sizeof(struct route_table_entry), cmpfunc);
 
 	// Initialize the ARP table
@@ -196,7 +195,7 @@ int main(int argc, char *argv[])
 		// If the packet is not for the router, forward it => Check the type of the packet(ARP/IP)
 		switch (ntohs(eth_hdr->ether_type))
 		{
-		case ETHERTYPE_IP:
+		case ETHERTYPE_IP:;
 			// Get the IP header
 			struct iphdr *ip_hdr = (struct iphdr *)(buf + sizeof(struct ether_header));
 
@@ -323,18 +322,15 @@ int main(int argc, char *argv[])
 				// Free the allocated memory for interface_mac
 				free(interface_mac);
 			}
-
+			
 			break;
-			;
 
-		case ETHERTYPE_ARP:
+		case ETHERTYPE_ARP:;
 			// NOT IMPLEMENTED => TOO MANY HOMEWORKS :(
 			break;
-			;
 
-		default:
+		default:;
 			break;
-			;
 		}
 	}
 

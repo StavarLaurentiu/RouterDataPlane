@@ -14,6 +14,7 @@ ARP_TABLE = "arp_table.txt"
 # low-resource machines.
 TIMEOUT = 10
 
+
 BASE_FORMATS = {
         "host_name": "h-{}",
         "router_if_name": "r-{}",
