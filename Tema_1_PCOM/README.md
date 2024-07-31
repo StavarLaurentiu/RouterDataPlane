@@ -1,5 +1,3 @@
-Stavar Laurentiu-Cristian, Grupa 322CC
-
 1. Implementation time: ~18h
 
 2. Solved:
@@ -8,13 +6,9 @@ Stavar Laurentiu-Cristian, Grupa 322CC
 -- Longest Prefix Match efficient
 -- ICMP Protocol
 
-3. Not solved:
+3. Homework implemented in C
 
--- ARP Protocol
-
-4. Homework implemented in C
-
-5. Solution explanation:
+4. Solution explanation:
 
 -- Alloc memory the routing table, I read it from the file and sort the routing
 table, alloc the static arp table and read it from the file.
@@ -55,7 +49,7 @@ table, alloc the static arp table and read it from the file.
         -- Else, drop the packet.
     -- Free all the memory allocated.
 
-6. Searching in the routing table:
+5. Searching in the routing table:
 
 -- For this part of the homework I choose to use the binary search instead of using
 a trie. That's only because I find it easier this way and this is still better than
@@ -63,7 +57,7 @@ the liniar search.
 -- My solution for searching in the routing table has a complexity of O(log n) which
 is better than the O(n) complexity of a linear search.
 
-7. No memory leaks:
+6. No memory leaks:
 
 -- Even tought it's not specified I tried to free all the memory I have allocated
 during the implementation in order to reduce the memory leaks as much as possible.
